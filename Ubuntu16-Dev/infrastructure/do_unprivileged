@@ -1,0 +1,74 @@
+#!/bin/bash
+set -euo pipefail
+IFS=$'\n\t'
+
+function setup-user-profile {
+  local userhome="$1"
+  local profile="${userhome}/.bash_profile"
+  local pattern="parse_git_branch"
+  echo ">>>>>>>>>>>>>>>>>>>>>>>>> Setting up user Profile <<<<<<<<<<<<<<<<<<<<<<<<<"
+
+  touch "${profile}"
+  if ! (( $(grep -c "${pattern}" "${profile}") )); then
+    cat << EOF | tee -a "${profile}"
+
+parse_git_branch() {
+     git branch 2> /dev/null | sed -e '/^[^*]/d' -e 's/* \(.*\)/ (\1)/'
+}
+
+export PS1="\u@\h \[\033[32m\]\w\[\033[33m\] \$(parse_git_branch)\[\033[00m\] \$ "
+
+EOF
+  source "${profile}"
+  fi
+
+  local current_gsettings=`gsettings get com.canonical.Unity.Launcher favorites`
+  if echo "${current_gsettings}" | grep -q "application://ubuntu-amazon-default.desktop" ; then
+    echo "Setuping reasonable default apps in the Unity sidebar for ${USER}"
+    dbus-launch gsettings set com.canonical.Unity.Launcher favorites \
+      "['application://nautilus.desktop', 'unity://running-apps', 'application://slack.desktop', 'application://sublime-text.desktop', 'application://chromium-browser.desktop', 'application://gnome-terminal.desktop', 'unity://expo-icon', 'unity://devices']"
+    else
+      echo "Reasonable defaults have already been set in the sidebar, skipping"
+  fi
+}
+
+function show-help {
+  local script="$1"
+
+  echo -e \\n"Help documentation for ${BOLD}${script}.${NORM}"\\n
+  echo -e \\n"This script performs an initial environment setup for the user."\\n
+  echo "Command line switches are optional. The following switches are recognized."
+  echo "${REV}-u,--username${NORM}  --The user that is doing development. Default is ${BOLD}vagrant${NORM}."
+  echo -e "${REV}-h,--help${NORM}  --Displays this help message."\\n
+  echo -e "Example: ${BOLD}${script} -u otto -p s3cr3t${NORM}"\\n
+}
+
+# #########################################################
+# main
+# #########################################################
+
+SCRIPT="$(readlink -f "$0")"
+
+# defaults
+USERNAME=vagrant
+
+# read the options
+TEMP=`getopt -o u:h --long username:,help -n 'do_unprivileged' -- "$@"`
+if [ $? != 0 ] ; then show-help ${SCRIPT} >&2 ; exit 1 ; fi
+
+eval set -- "$TEMP"
+
+while true ; do
+    case "$1" in
+        -u|--username) USERNAME="$2" ; shift 2 ;;
+        -h|--help) show-help ${SCRIPT} ; exit 0 ;;
+        --) shift ; break ;;
+        *) show-help ${SCRIPT} ; exit 1 ;;
+    esac
+done
+
+USERHOME="/home/${USERNAME}"
+
+setup-user-profile "${USERHOME}"
+
+exit $?

@@ -1,0 +1,106 @@
+require 'net/http'
+
+box_name = 'Win10-Dev'
+local_dir = 'modern.ie'
+local_box = "#{local_dir}/#{box_name}"
+
+Dir.mkdir local_dir unless Dir.exist?(local_dir)
+
+unless File.exist?(local_box)
+  puts "Creating Vagrant Box #{box_name}"
+  vboxmanage = 'C:/Program Files/Oracle/VirtualBox/VBoxManage'
+  vm = "MSEdge - Win10RS2"
+  unless system "\"#{vboxmanage}\" showvminfo \"#{vm}\""
+    puts "Creating VM #{vm}. This will take a while, so go walk around the block a few times."
+    ievms_version = 'EDGE'
+    ievms_home = "#{ENV['HOME']}/.ievms"
+    vmBuild = 'VMBuild_20170320'
+    download = 'MSEdge.Win10.RS2.VirtualBox.zip'
+    ova = 'MSEdge - Win10_preview.ova'
+    unit = '8'
+    vmdk = "#{ievms_home}/#{vm}-disk1.vmdk"
+    vdi = "#{ievms_home}/#{vm}-disk1.vdi"
+	  puts "Downloading #{download}"
+	  uri = URI "https://az792536.vo.msecnd.net/vms/#{vmBuild}/VirtualBox/MSEdge/#{download}"
+    `curl -O #{uri}`
+    # Net::HTTP.start(uri.host, uri.port, :use_ssl => uri.scheme == 'https') do |http|
+    #   request = Net::HTTP::Get.new uri
+    #   http.request request do |response|
+    #     open download, 'w' do |io|
+    #       response.read_body do |chunk|
+    #           io.write chunk
+    #       end
+    #     end
+    #   end
+    # end
+	  `unzip "#{download}" -d .`
+    `"#{vboxmanage}" import "#{ova}" --vsys 0 --vmname "#{vm}" --unit "#{unit}" --disk "#{vmdk}"`
+	  File.delete download, ova
+    puts 'Adding shared folder'
+    `"#{vboxmanage}" sharedfolder add "#{vm}" --automount --name ievms --hostpath "#{ievms_home}"`
+    puts 'Tagging VM with ievms version'
+    `"#{vboxmanage}" setextradata "#{vm}" "ievms" "{\"version\":\"#{ievms_version}\"}"`
+    puts 'Creating clean snapshot'
+    `"#{vboxmanage}" snapshot "#{vm}" take clean --description "The initial VM state"`
+  else
+    puts "VM #{vm} already exists, skipping"
+  end
+  puts "Packaging #{vm}"
+  `vagrant package --base "#{vm}" --output "#{local_box}"`
+  puts '!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!'
+  puts '! In VM, run these commands in Powershell as Admin to make the network Private !'
+  puts '!  Get-NetConnectionProfile | Set-NetConnectionProfile -NetworkCategory Private!'
+  puts '!  Enable-PSRemoting -SkipNetworkProfileCheck -Force                           !'
+  puts '!                                                                              !'
+  puts '! Run these commands in cmd as Admin:                                          !'
+  puts '!  @echo off                                                                   !'
+  puts '!  set WINRM_EXEC=call %SYSTEMROOT%\System32\winrm                             !'
+  puts '!  %WINRM_EXEC% quickconfig -q                                                 !'
+  puts '!  %WINRM_EXEC% set winrm/config/winrs @{MaxMemoryPerShellMB="300"}            !'
+  puts '!  %WINRM_EXEC% set winrm/config @{MaxTimeoutms="1800000"}                     !'
+  puts '!  %WINRM_EXEC% set winrm/config/client/auth @{Basic="true"}                   !'
+  puts '!  %WINRM_EXEC% set winrm/config/service @{AllowUnencrypted="true"}            !'
+  puts '!  %WINRM_EXEC% set winrm/config/service/auth @{Basic="true"}                  !'
+  puts '!                                                                              !'
+  puts '! Run this command on the host to reprovision the VM                           !'
+  puts '!  vagrant provision                                                           !'
+  puts '! Change your power settings never to disable the display or else!             !'
+  puts '!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!'
+  puts '!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!'
+  puts '! Run these commands in bash to resize your hard disk                                                                                                                                  !'
+  puts "!  \"#{vboxmanage}\" clonehd \"#{ENV['HOME']}/VirtualBox VMs/#{box_name}/box-disk1.vmdk\" \"#{ENV['HOME']}/VirtualBox VMs/#{box_name}/box-disk1.vdi\" --format vdi                     !"
+  puts "!  \"#{vboxmanage}\" modifyhd \"#{ENV['HOME']}/VirtualBox VMs/#{box_name}/box-disk1.vdi\" --resize 65536                                                                               !"
+  puts "!  \"#{vboxmanage}\" storageattach \"#{box_name}\" --storagectl \"IDE Controller\" --device 0 --port 0 --type hdd --medium \"#{ENV['HOME']}/VirtualBox VMs/#{box_name}/box-disk1.vdi\" !"
+  puts "!  rm \"#{ENV['HOME']}/VirtualBox VMs/#{box_name}/box-disk1.vmdk\"                                                                                                                     !"
+  puts '!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!'
+end
+  
+Vagrant.configure(2) do |config|
+  config.vm.box = local_box
+  config.vm.boot_timeout = 500
+  
+  config.vm.communicator = 'winrm'
+  config.winrm.username = 'IEUser'
+  config.winrm.password = 'Passw0rd!'
+  config.winrm.host = 'localhost'
+  
+  config.vm.guest = :windows
+  config.windows.halt_timeout = 30
+  
+  config.vm.network :forwarded_port, guest: 3389, host: 3389, id: 'rdp', auto_correct: true
+  config.vm.network :forwarded_port, guest: 5985, host: 5985, id: 'winrm', auto_correct: true
+
+  config.vm.synced_folder '..', 'C:/Users/IEUser/Documents/Share'
+  
+  config.vm.provider 'virtualbox' do |vb|
+    vb.name = box_name
+    vb.gui = true
+    vb.memory = 8192
+	  vb.cpus = 2
+	  vb.customize ['modifyvm', :id, '--vram', '256']
+	  vb.customize ['modifyvm', :id, '--clipboard', 'bidirectional']
+    vb.customize ["modifyvm", :id, "--accelerate2dvideo", "on"]
+  end
+  
+  config.vm.provision :shell, path: "do_privileged.ps1"
+end

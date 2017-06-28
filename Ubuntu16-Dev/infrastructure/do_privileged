@@ -1,0 +1,83 @@
+#!/bin/bash
+set -euo pipefail
+IFS=$'\n\t'
+
+function ensure-sudo {
+  if [ "$(id -u)" != "0" ]; then
+    echo "Sorry, you must run this script as root (use sudo)."
+    exit 1
+  fi
+}
+
+function install-dependencies {
+  echo ">>>>>>>>>>>>>>>>>>>>>>>>> Installing Dependencies <<<<<<<<<<<<<<<<<<<<<<<<<"
+  apt-get -qq update
+  apt-get -qq install -y git chromium-browser build-essential libssl-dev nodejs nodejs-legacy npm libappindicator1 autojump
+}
+
+function fix-terminal {
+  locale-gen
+  localectl set-locale LANG="en_US.UTF-8"  
+}
+
+function install-sublime-text {
+  echo ">>>>>>>>>>>>>>>>>>>>>>>>>>> Installing Sublime <<<<<<<<<<<<<<<<<<<<<<<<<<<<"
+  add-apt-repository ppa:webupd8team/sublime-text-3
+  apt-get -qq update
+  apt-get -qq install -y sublime-text-installer
+}
+
+function install-slack {
+  echo ">>>>>>>>>>>>>>>>>>>>>>>>>>> Installing Slack <<<<<<<<<<<<<<<<<<<<<<<<<<<<<<"
+  local slack_package="slack-desktop-2.5.2-amd64.deb"
+  local download="/var/tmp/${slack_package}"
+
+  if [ ! -f "${download}" ]; then
+    pushd /var/tmp
+    wget -q -O "${download}" "https://downloads.slack-edge.com/linux_releases/${slack_package}"
+    dpkg --install "${slack_package}"
+    popd
+  fi
+}
+
+function show-help {
+  local script="$1"
+
+  echo -e \\n"Help documentation for ${BOLD}${script}.${NORM}"\\n
+  echo -e "${REV}Basic usage:${NORM} ${BOLD}${script}${NORM}"\\n
+  echo "Command line switches are optional. The following switches are recognized."
+  echo "${REV}-u,--username${NORM}  --The user that is doing development. Default is ${BOLD}vagrant${NORM}."
+  echo -e "${REV}-h,--help${NORM}  --Displays this help message."\\n
+  echo -e "Example: ${BOLD}${script} -u otto${NORM}"\\n
+}
+
+# #########################################################
+# main
+# #########################################################
+
+SCRIPT="$(readlink -f "$0")"
+
+# defaults
+USERNAME=vagrant
+
+# read the options
+TEMP=`getopt -o h --long help -n 'do_privileged' -- "$@"`
+if [ $? != 0 ] ; then show-help ${SCRIPT} >&2 ; exit 1 ; fi
+
+eval set -- "$TEMP"
+
+while true ; do
+    case "$1" in
+        -h|--help) show-help ${SCRIPT} ; exit 0 ;;
+        --) shift ; break ;;
+        *) show-help ${SCRIPT} ; exit 1 ;;
+    esac
+done
+
+ensure-sudo
+install-dependencies
+fix-terminal
+install-sublime-text
+install-slack
+
+exit $?
